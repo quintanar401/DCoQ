@@ -179,7 +179,7 @@ q)c 3
 ```
 You can use two ":" functions at the end. In this case one of them gets applied to its left argument and the second (til in this example) becomes the first function of the composition.
 
-### Arbitrary staff out of comments
+### Arbitrary stuff out of comments
 
 All Q expressions start from the new line with no spaces before them. This is a common mistake to omit spaces inside a multiline function or before the last curly bracket
 ```
@@ -208,14 +208,11 @@ There is another example when you can comment without a comment
  d syscmd doesn't mind if there is
  something after it but
  it switches to some namespace based on this comment so
-a:100 / anything defined after it is lost in limbo
+a:100 / anything defined after it is in a namespace with \n at the end
 .c.c:0N!a+100 / but while you are in this context you can use defined vars, side effects and globals
-system "d" / reports . (or whatever is used with d) but it will be inaccessible from outside
-.c.f:{a::a+1} / but the namespace is still here, you can execute .c.f[]
 \d .
 b:100 / you must repeat d to resume the correct processing
 ```
-I guess this feature can be used for private namespaces that can't be changed but via public interface functions saved in another namespace.
 
 ### A way to get local variables by name in a function
 
@@ -380,3 +377,150 @@ sym   "`tok"
 sym   "`txt"
 ...
 ```
+
+### Weak pointers in Q
+
+Let's say we have a process that enriches messages making several asynchronous calls, splits them, joins the results back and etc. It is convenient to store every message
+in a global like:
+```
+.msgs.msg123:`table`settings`state!(();`a`b;`ready);
+/ or via a function
+.msgs.mkMsg:{.msgs[n:`$"msg",string "j"$.z.P]:x;n}
+```
+We would then pass this name to all processing functions and store it as a parent in its child messages. The main problem with globals is that you need to clear them after
+you don't need them anymore - like in old good C/C++. You'll have to carefully count all references and delete messages at the appropriate time.
+
+Fortunately Q already counts references for us. We could pass the message as is in a function or store it in another variable and Q would increase the message's reference counter by 1. Unfortunately
+as soon as we change any field in the message Q will create a new dictionary and all other copies will become invalid without any way to know it.
+
+Can we eat this cake and have it too? Use the built-in reference counting and avoid creating the new messages on each update? As it turns out we can. We can put a special marker
+into each message and then pass it as a pointer into functions or store it in other variables without ever changing it. Thus Q will correctly increase or decrease its reference counter
+at appropriate places and when this counter becomes equal to 1 we will know that the message is no longer needed and can be deleted. When we will have to make an update to the
+message we will just dereference this pointer and update it directly via its global name
+```
+.msgs.mkMsg:{n set x,``pointer!(::;enlist n:`$".msgs.","msg",string "j"$.z.P);n`pointer}
+.msgs.rc:{-1+-16!(x 0)`pointer}  / number of pointers
+.msgs.gc:{if[count k:k where 3=(-16!)each .msgs[k:k where (k:key .msgs)like"msg*";`pointer];![`.msgs;();0b;k];-1 "Deleted: ",string count k]}
+
+somefn:{p:.msgs.mkMsg `a`b!1 2; @[p 0;`a;:;10];p}
+somefn[] /  we ignore the pointer - no need to delete it
+.msgs.gc[] / GC will delete it
+
+p:somefn[] / store it
+.msgs.gc[] / GC will ignore it
+p:0; / now GC will delete it
+.msgs.gc[]
+```
+
+
+### OOQ - Object Oriented Q
+
+Lets build up on the previous section. The main issue with Q is that it is not possible to use closures or objects in it to capture state. We can save it in a global variable
+but globals are hard to use with complex objects. You'd have to use the general ammend with complicated paths to access deep values and then it still would not be easy to work
+with objects inside objects. Q works great with uniform tables and lists but does a poor job when we have many objects with a different structure that can have links
+to other objects.
+
+CEP messages from the previous section are a good example - they may have different fields, links to other messages, contain large tables. Though we can store them in tables or lists
+it would be a poor choice because it would be hard to modify them especially in place to save the memory. We could save them in anonymous globals as above but we can
+make one step further and generalize this idea and develop an OOP library for Q.
+
+This library will support incapsulation, inheritance and etc, it will be slow of course but this is the price we have to pay for convenience.
+
+First of all what kind of OOP we should implement. We could implement java-like OOP with methods, access control and etc but this doesn't make much sense. Q is a functional
+language with great flexibility after all. I think JavaScript-like prototype based inheritance is the best choice - there is no hardwared class support thus no distinction between
+a class and an object. We will allow any object to be a prototype for another object. For convenience though we should support explicit prototypes like this
+```
+.objs.obj.__proto__:();
+.objs.obj.show:{[th] show get th.objName};
+```
+This is a demo so all objects will be in `.objs` namespace. `__proto__` is an optional link to the parent (`obj` by default). `.objs.AAA.name` are variables
+and functions (all are first class values so no distinction). Again for convenience I support a special marker `th` - `this`. When it is the first argument
+of a function it means the function requires `this` value and the function's body will be preprocessed - all names like `th.something` will be changed to correct
+calls to `this`. Here are the preprocessing funcions
+```
+.objs.pp:`$"_pointer";
+.objs.p:`$"__proto__";
+.objs.regObj:{@[n;.objs.p;:;$[-11=type p:(n:` sv`.objs,x).objs.p;p;`obj]]; / setup __proto__
+  {x set .objs.mf y}'[` sv/:n,/:k;n k:where 100=type each get n]; / change functions with this
+ };
+.objs.mf:{if[`th=first a:(g:value x)1;if[count g:g where(g:g 3)like "th.*";:value .objs.subst[count a]/[string x;string g]]];x}; / subst this
+.objs.subst:{if[x=1;y:"{[th;dummy",(y?"]")_y]; / {[th]} -> {[th;dummy]}
+  ssr[y;z,"?";{("th[`",("gs" f),";`",(-1_3_x),"]"),(neg 1-f:":"=last x)#x}]}; / th.aaa: 10 => th[`s;`aaa]10, th.fn[] => th[`g;`fn][]
+```
+`.objs.regObj` should be called on every raw prototype to preprocess functions and adjust its parent. Note that the prototype itself is not an object (for brevity, we could make it one).
+`.objs.mf` preprocesses a function using `.objs.subst` to substitute the required substrings in the function's body.
+
+The next step is to implement `new`
+```
+.objs.c:0;
+.objs.new:{[o;a] n set (.objs o),(.objs.pp,`objName)!(enlist n;n:`$".objs.o",string .objs.c+:1); / create a new obj
+  if[`constr in key n;.objs.mth[n][`g;`constr].(),a];
+  : .objs.mp n;
+ };
+.objs.mth:{{$[y=`s;{if[100=type y;y:.objs.mf y];x set y;y}` sv(x 0),z;
+  y in `v`g;$[(y=`v)|100<>type f:.objs.res[x 0;z];f;`th=first v:value[f]1;f .objs.mth x 0;f];'string y]}x .objs.pp}; / internal smart pointer
+.objs.mp:{(')[{f:.objs.mth x;$[`set=z 0;f[`s;z 1]. 2_z;1=count z;f[`v;z 0];f[`g;z 0]. 1_z]}[x;x .objs.pp];enlist]}; / external smart pointer
+.objs.res:{$[1=count n:` vs y;$[y in key x;x y;.z.s[` sv`.objs,x .objs.p;y]];.z.s[` sv`.objs,p;$[0=count p:x .objs.p;'y;n[0] in p;n 1;y]]]}; / name resolver
+```
+It is pretty straightforward - create an object, assign the unique pointer to it to count references and call `constr` if it is defined. `.objs.mth` function creates
+the internal pointer - the pointer to be used inside object's functions. `.objs.mp` creates the external pointer with slightly different semantic. Name resolver function
+walks down the prototype chain searching for the required function. You can pass to it a name like `base.var` to force it to start the search from the specific
+`base` object (useful if a child redefines a variable from its parent).
+
+It may not be clear from this code but we are not restricted to explicit prototypes if we want to create an object. We can start from `obj` and then assign to it
+all required functions and values (like in JS actually).
+
+Finally the GC part
+```
+.objs.rc:{-2+(-16!)x[`objName].objs.pp};
+.objs.gc:{if[count k:k where 3=(-16!)each .objs[k:k where (k:key .objs)like"o[0-9]*";.objs.pp];![`.objs;();0b;k];-1 "Deleted: ",string count k]};
+```
+GC can be called to delete the unused objects (it doesn't support loops though). `rc` can be called to check the reference count of an object.
+
+Now examples. First we define prototypes
+```
+.objs.obj.__proto__:();
+.objs.obj.show:{[th] show get th.objName};
+.objs.obj.pointer:{[th] .objs.mp th.objName};
+
+.objs.animal.constr:{'`abstract};
+.objs.animal.says:{[th] 1 th.name," says "};
+
+.objs.cat.__proto__:`animal;
+.objs.cat.constr:{[th;color] th.color: color; th.name:"cat"};
+.objs.cat.says:{[th] th.animal.says[]; -1 "myau, I'm ",th.color};
+
+.objs.dog.__proto__:`animal;
+.objs.dog.constr:{[th;toy] th.toy: toy; th.name:"dog"};
+.objs.dog.says:{[th] th.animal.says[]; -1 "bark, I like my ",th.toy};
+/ we need to register first
+.objs.regObj each `obj`animal`cat`dog
+```
+Note that we use inheritance, polymorphism, abstract classes, constructors, make assignments to object variables, call the parent function - quite a lot! Lets create objects
+```
+q)cat:.objs.new[`cat;enlist "black"]
+q)dog:.objs.new[`dog;enlist "bone"]
+
+q)cat[`says;::]
+cat says myau, I'm black
+q)dog[`says;::]
+dog says bark, I like my bone
+
+/ when you call an external pointer with a name it will return the obj's value as is, object's real name in this case.
+q)cat[`objName]
+/ we can use set to reassign or create any variable
+q)cat[`set;`color;"white"]
+q)cat[`says;::]
+cat says myau, I'm white
+/ lets assign a function - 100% object oriented
+q)cat[`set;`hiss;{[th;name] th.animal.says[]; -1 "hiss, go away ",name}]
+q)cat[`hiss;"Bill"]
+cat says hiss, go away Bill
+
+/ finally we can delete dog and call gc
+q)dog:0
+q).objs.gc[] / will delete its object
+```
+
+This version doesn't support other objects as prototypes but it is easy to implement - extract the obj's name and save a pointer to it in some variable inside the new
+object (to ensure that the prototype will not be deleted).
