@@ -484,7 +484,8 @@ Now examples. First we define prototypes
 .objs.obj.pointer:{[th] .objs.mp th.objName};
 
 .objs.animal.constr:{'`abstract};
-.objs.animal.says:{[th] 1 th.name," says "};
+.objs.animal.says:{[th] 1 th.getName[]," says "};
+.objs.animal.getName:{[th] th.name};
 
 .objs.cat.__proto__:`animal;
 .objs.cat.constr:{[th;color] th.color: color; th.name:"cat"};
@@ -493,10 +494,11 @@ Now examples. First we define prototypes
 .objs.dog.__proto__:`animal;
 .objs.dog.constr:{[th;toy] th.toy: toy; th.name:"dog"};
 .objs.dog.says:{[th] th.animal.says[]; -1 "bark, I like my ",th.toy};
+.objs.dog.getName:{[th] upper th.name};
 / we need to register first
 .objs.regObj each `obj`animal`cat`dog
 ```
-Note that we use inheritance, polymorphism, abstract classes, constructors, make assignments to object variables, call the parent function - quite a lot! Lets create objects
+Note that we use inheritance, polymorphism, virtual functions, abstract classes, constructors, make assignments to object variables, call the parent function - quite a lot! Lets create objects
 ```
 q)cat:.objs.new[`cat;enlist "black"]
 q)dog:.objs.new[`dog;enlist "bone"]
@@ -504,7 +506,7 @@ q)dog:.objs.new[`dog;enlist "bone"]
 q)cat[`says;::]
 cat says myau, I'm black
 q)dog[`says;::]
-dog says bark, I like my bone
+DOG says bark, I like my bone
 
 / when you call an external pointer with a name it will return the obj's value as is, object's real name in this case.
 q)cat[`objName]
