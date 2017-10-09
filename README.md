@@ -1,5 +1,19 @@
 # Dark corners of Q
 
+* [Intro](#intro)
+* [Magic value](#magic-value)
+* [";" as an identity function](#-as-an-identity-function)
+* ["q" and "k" are functions](#q-and-k-are-functions)
+* [Mistery of :](#Mistery-of-)
+* [Arbitrary stuff out of comments](#arbitrary-stuff-out-of-comments)
+* [A way to get local variables by name in a function](#a-way-to-get-local-variables-by-name-in-a-function)
+* [Subvert timeouts via 0 handle and catch blocks](#subvert-timeouts-via-0-handle-and-catch-blocks)
+* [Functions with unlimited number of args](#functions-with-unlimited-number-of-args)
+* [DSLs on the fly](#dsls-on-the-fly)
+* [Lexer in 5 minutes](#lexer-in-5-minutes)
+* [Weak pointers in Q](#weak-pointers-in-q)
+* [OOQ - Object Oriented Q](#ooq---object-oriented-q)
+
 ### Intro
 
 There are many hidden features and obscure practices in Q. This is the list of some of them.
