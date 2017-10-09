@@ -4,7 +4,7 @@
 * [Magic value](#magic-value)
 * [";" as an identity function](#-as-an-identity-function)
 * ["q" and "k" are functions](#q-and-k-are-functions)
-* [Mistery of :](#Mistery-of-)
+* [Mistery of :](#mistery-of-)
 * [Arbitrary stuff out of comments](#arbitrary-stuff-out-of-comments)
 * [A way to get local variables by name in a function](#a-way-to-get-local-variables-by-name-in-a-function)
 * [Subvert timeouts via 0 handle and catch blocks](#subvert-timeouts-via-0-handle-and-catch-blocks)
