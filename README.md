@@ -13,6 +13,8 @@
 * [Lexer in 5 minutes](#lexer-in-5-minutes)
 * [Weak pointers in Q](#weak-pointers-in-q)
 * [OOQ - Object Oriented Q](#ooq---object-oriented-q)
+* [Function invocation techniques](#function-invocation-techniques)
+* [Simple top-down recursive descent parser](#simple-top-down-recursive-descent-parser)
 
 ### Intro
 
@@ -144,6 +146,11 @@ q)"!" "1+1"
 2
 ```
 is to provide an eval function. More on this feature in DSL section.
+
+"'" also has a special meaning. It provides another way to raise an exception:
+```
+{"'" "exc"}[]
+```
 
 ### Mistery of :
 
@@ -540,3 +547,121 @@ q).objs.gc[] / will delete its object
 
 This version doesn't support other objects as prototypes but it is easy to implement - extract the obj's name and save a pointer to it in some variable inside the new
 object (to ensure that the prototype will not be deleted).
+
+### Function invocation techniques
+
+Iterate over adverb accepts only 1 argument, this can be bypassed with
+```
+({(x+z;y+z;0|z-1)}.)/[(1;2;3)]
+```
+For names it is even simpler
+```
+f:{(x+z;y+z;0|z-1)}.
+f/[(1;2;3)]
+```
+
+It is possible to remove square brackets from an adverb
+```
+{x<10}{x+1}/3 / ~ {x+1}/[{x<10};2]
+({x+y}/)1 2 3 / with 1 arg you need to use ()
+```
+
+### Simple top-down recursive descent parser
+
+The parser is based on ideas from sp.q file for odbc3 driver provided by KX.
+
+KX parser uses Q `parse` function to create the initial tree of a parsed grammar. This adds some inconvenient restrictions on the grammar language thus I create my own parser for
+the grammar language to make it more similar to Yacc, ANTLR and etc.
+
+Each grammar consists of rules like:
+```
+ruleName: ruleDef
+```
+The simplest definition blocks are:
+```
+"select" - constant
+`select - another way to provide a constant
+ruleName - reference to some grammar rule
+NAME - token name (capital letters).
+```
+More complex definitions look like:
+```
+X | X ...  - OR rule. The subrules are executed from left to right until one of them succeeds
+X X ... - AND rule. All subrules are executed from left to right and all must succeed
+(X ...) - subrule
+X? - 0 or 1 rule
+X* - 0 or more rule
+X+ - 1 or more rule
+{fn} - action fn will be inserted into the parse fn
+X 135 - shortcut for {:(v1;v3;v5)}, where vN are references to the parsed exprs
+```
+When there is no action specified for some rule or subrule the result of the rule will conform to its definition. That is ID "=" expr will produce (id;"=";expr).
+
+First of all we need to remove Q functions from the grammar rules to simplify the parse functions. I cut all functions from the input string and save them in .g.A variable.
+I replac ethem with .g.A references like 1h. h type is used to make them different from the action shortcuts:
+```
+.g.A:();
+.g.fext:{if[count w:where differ[0;]1&sums(not{$[x=2;1;x;$["\""=y;0;"\\"=y;2;1];1*"\""=y]}\[0;x])*(neg"}"=x)+"{"=x;ca:count .g.A;.g.A,:a:value each x b:a+til each d:1+w[;1]-a:(w:(0N 2)#w)[;0];x:@[;;:;]/[x;b;d$(string ca+til count a),\:"h"]];x};
+```
+Next I need to split the rules into tokens. This can be done with -4! special function that splits a string into Q string tokens. Then I remove spaces and apply value to each string to get
+the tokens: "xxx" and \`xxx are mapped to strings, special ops to chars, rule names to symbols, token names to enlisted symbols, numbers to numbers:
+```
+.g.val:{{$[(f:first x)in .Q.n;$[-7=type x:value x;[.g.A,:value{"{:(",x,")}"}";"sv"v",/:string x;"h"$-1+count .g.A];x];f="\"";(),value x;f="`";1_x;f in "?!|+*():";f;$[all x in .Q.A;enlist;::]`$x]}each t where not enlist[" "]~/:t:-4!x};
+```
+Top level rule parse functions are very simple - find the rule name and execute OR rule parser. Its result will be the rule function.
+```
+.g.prule:{if[not(-11=type x 0)&":"~x 1;'"rule fmt"]; .g[x 0]:.g.por "|",2_x};
+.g.pflt:{not sums(x~\:"(")+-1*prev x~\:")"}; / utility to filter (...) exprs
+```
+OR parser. Try each alternative until one succeeds otherwise return .g.err:
+```
+.g.por:{i:where(x~\:"|")&.g.pflt x; value {"{i:.g.i;\n  ",(";\n  "sv x),";\n  `.g.err}"}{"if[not`.g.err~v:",x," x; :v]; .g.i:i"}each string .g.pand each 1_'i cut x};
+```
+AND rule must take into account (), \*, + and etc expressions. `.g.pval` prepares AND atoms and `.g.pexp` takes care of \*, + and ?.
+```
+.g.pand:{v:1_{x,$["("~first y;.g.por "|",1_-1_y;y]}/[();(where differ .g.pflt x)cut x:"|",x]; value {"{",y,";\n  (",(";"sv"v",/:string 1+til max x),")}"}[s]";\n  "sv .g.pexp'[s:sums(type each first each v)in 10 11 -11 100h;v:(where differ sums not any each v~/:\:"+?*")cut v]};
+.g.pval:{if[-5=t:type x;:-1_1_string .g.A x];"if[",$[-11=t;"`.g.err~v:.g.",string[x]," x";11=t;"[v:.g.t[0;.g.i];not .g.t[1;.g.i]~`",string[x 0],"]";10=t;"not(v:.g.t[0;.g.i])~",$[1=count x;{"(),",1_x};::].Q.s1 x;100=t;"`.g.err~v:",string[x]," x";'"unexp"],";:`.g.err]",$[t in -11 100h;"";"; .g.i+:1"]};
+.g.pexp:{v:.g.pval y 0; n:"v",string x; if[1=count y;:v,$[-5=type y 0;"";"; ",n,":v"]]; v:"`.g.err~v:{",v,"; v}[x]"; $["?"=y 1;n,":$[",v,";();v]";n,":",$["+"=y 1;"$[",v,";:`.g.err;enlist v]";"()"],"; while[not ",v,";",n,":",n,",enlist v]"]};
+```
+Finally we need some functions to do the actual parsing:
+```
+.g.e:{.g.prule .g.val .g.fext x}
+.g.p:{.g.t:y; .g.i:0; if[(.g.i<>count .g.t 0)|`.g.err~v:.g[x][];'"parse error, last token ",.Q.s1 .g.t[0;.g.i]]; v}
+.g.l:{(x;{$["\""=first x;`STR;x[0]in .Q.n;`NUM;x[0]in".",.Q.a,.Q.A;`ID;`]}each x:x where not (()," ")~/:x:-4!x)}
+```
+`.g.e` can be used to define the grammar (see below). `.g.l` is a simple lexer based on Q lexer. `.g.p` is a simple eager parse function that expect a top rule name and tokens.
+
+Lets now create a simple parser for a simple functional language:
+```
+g)top: {x:()!()} expr
+g)expr: "let" ID "=" aexpr "in" {x[`$v2]:v4} expr 6 | aexpr
+g)aexpr: mexpr (("+" {:(+)} |"-" {:(-)}) mexpr)*     {:{y[0][x;y 1]}/[v1;v2]}
+g)mexpr: atom (("*" {:(*)} |"/" {:(%)}) atom)*       {:{y[0][x;y 1]}/[v1;v2]}
+g)atom: NUM {: value v1} | ID {:$[(vv:`$v1)in key x;x vv;'vv]} | "(" expr ")" 2
+.c.e:{.g.p[`top] .g.l x}
+```
+We allow simple arithmetic expressions with priorities and the variable binding via "let var = .. in ...". `.c.e` is the parser and evaluator. For example:
+```
+c)10+20 / -> 30
+c)2*3+5*2 / -> 16
+c)let a=10 in let b = 20 in 10*(a+b)  / -> 300
+c)let a=10 in b*a / exception
+c)10+(let b = 12*6+1 in b-10) / ->73
+c)10++ / exception, the parser will return 10 and detect that not all input is consumed
+\ts:100 .c.e "+"sv 1000#enlist "(12*6+1)" / 5.6sec, (100*9000)%5.6 -> 161.000 bytes per sec. Not bad for such primitive parser
+```
+Full parser generator code:
+```
+.g.A:();
+.g.fext:{if[count w:where differ[0;]1&sums(not{$[x=2;1;x;$["\""=y;0;"\\"=y;2;1];1*"\""=y]}\[0;x])*(neg"}"=x)+"{"=x;ca:count .g.A;.g.A,:a:value each x b:a+til each d:1+w[;1]-a:(w:(0N 2)#w)[;0];x:@[;;:;]/[x;b;d$(string ca+til count a),\:"h"]];x};
+.g.val:{{$[(f:first x)in .Q.n;$[-7=type x:value x;[.g.A,:value{"{:(",x,")}"}";"sv"v",/:string x;"h"$-1+count .g.A];x];f="\"";(),value x;f="`";1_x;f in "?!|+*():";f;$[all x in .Q.A;enlist;::]`$x]}each t where not enlist[" "]~/:t:-4!x};
+.g.prule:{if[not(-11=type x 0)&":"~x 1;'"rule fmt"]; .g[x 0]:.g.por "|",2_x};
+.g.pflt:{not sums(x~\:"(")+-1*prev x~\:")"}; / utility to filter (...) exprs
+.g.por:{i:where(x~\:"|")&.g.pflt x; value {"{i:.g.i;\n  ",(";\n  "sv x),";\n  `.g.err}"}{"if[not`.g.err~v:",x," x; :v]; .g.i:i"}each string .g.pand each 1_'i cut x};
+.g.pand:{v:1_{x,$["("~first y;.g.por "|",1_-1_y;y]}/[();(where differ .g.pflt x)cut x:"|",x]; value {"{",y,";\n  (",(";"sv"v",/:string 1+til max x),")}"}[s]";\n  "sv .g.pexp'[s:sums(type each first each v)in 10 11 -11 100h;v:(where differ sums not any each v~/:\:"+?*")cut v]};
+.g.pval:{if[-5=t:type x;:-1_1_string .g.A x];"if[",$[-11=t;"`.g.err~v:.g.",string[x]," x";11=t;"[v:.g.t[0;.g.i];not .g.t[1;.g.i]~`",string[x 0],"]";10=t;"not(v:.g.t[0;.g.i])~",$[1=count x;{"(),",1_x};::].Q.s1 x;100=t;"`.g.err~v:",string[x]," x";'"unexp"],";:`.g.err]",$[t in -11 100h;"";"; .g.i+:1"]};
+.g.pexp:{v:.g.pval y 0; n:"v",string x; if[1=count y;:v,$[-5=type y 0;"";"; ",n,":v"]]; v:"`.g.err~v:{",v,"; v}[x]"; $["?"=y 1;n,":$[",v,";();v]";n,":",$["+"=y 1;"$[",v,";:`.g.err;enlist v]";"()"],"; while[not ",v,";",n,":",n,",enlist v]"]};
+.g.e:{.g.prule .g.val .g.fext x};
+.g.p:{.g.t:y; .g.i:0; if[(.g.i<>count .g.t 0)|`.g.err~v:.g[x][];'"parse error, last token ",.Q.s1 .g.t[0;.g.i]]; v};
+.g.l:{(x;{$["\""=first x;`STR;x[0]in .Q.n;`NUM;x[0]in".",.Q.a,.Q.A;`ID;`]}each x:x where not (()," ")~/:x:-4!x)};
+```
