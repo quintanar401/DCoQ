@@ -93,6 +93,11 @@ q)f:(')[max;eval(enlist),v] / create func, f now is a function of a random numbe
 q){x first 1?100}/[{100<type x};f] / feed random numbers to f until it is done
 65
 ```
+In the same manner mv can be used to create projections in the eval expressions
+```
+eval ({x+y};;1) / wrong
+eval ({x+y};enlist mv;1) / ok!
+```
 
 ### ";" as an identity function
 
@@ -566,6 +571,13 @@ It is possible to remove square brackets from an adverb
 ({x+y}/)1 2 3 / with 1 arg you need to use ()
 ```
 
+To create projections in the eval expressions use the magic value
+```
+eval ({x+y};;1) / wrong
+eval ({x+y};enlist mv;1) / ok!
+```
+
+
 ### Simple top-down recursive descent parser
 
 The parser is based on ideas from sp.q file for odbc3 driver provided by KX.
@@ -598,7 +610,7 @@ X 135 - shortcut for {:(v1;v3;v5)}, where vN are references to the parsed exprs
 When there is no action specified for some rule or subrule the result of the rule will conform to its definition. That is ID "=" expr will produce (id;"=";expr).
 
 First of all we need to remove Q functions from the grammar rules to simplify the parse functions. I cut all functions from the input string and save them in .g.A variable.
-I replac ethem with .g.A references like 1h. h type is used to make them different from the action shortcuts:
+I replace them with .g.A references like 1h. h type is used to make them different from the action shortcuts:
 ```
 .g.A:();
 .g.fext:{if[count w:where differ[0;]1&sums(not{$[x=2;1;x;$["\""=y;0;"\\"=y;2;1];1*"\""=y]}\[0;x])*(neg"}"=x)+"{"=x;ca:count .g.A;.g.A,:a:value each x b:a+til each d:1+w[;1]-a:(w:(0N 2)#w)[;0];x:@[;;:;]/[x;b;d$(string ca+til count a),\:"h"]];x};
