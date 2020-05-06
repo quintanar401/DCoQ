@@ -15,7 +15,7 @@
 * [OOQ - Object Oriented Q](#ooq---object-oriented-q)
 * [Function invocation techniques](#function-invocation-techniques)
 * [Simple top-down recursive descent parser](#simple-top-down-recursive-descent-parser)
-* [Multiple DBs in one Q process](multiple-dbs-in-one-q-process)
+* [Multiple DBs in one Q process](#multiple-dbs-in-one-q-process)
 
 ### Intro
 
