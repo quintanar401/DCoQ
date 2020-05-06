@@ -15,6 +15,7 @@
 * [OOQ - Object Oriented Q](#ooq---object-oriented-q)
 * [Function invocation techniques](#function-invocation-techniques)
 * [Simple top-down recursive descent parser](#simple-top-down-recursive-descent-parser)
+* [Multiple DBs in one Q process](multiple-dbs-in-one-q-process)
 
 ### Intro
 
@@ -676,4 +677,33 @@ Full parser generator code:
 .g.e:{.g.prule .g.val .g.fext x};
 .g.p:{.g.t:y; .g.i:0; if[(.g.i<>count .g.t 0)|`.g.err~v:.g[x][];'"parse error, last token ",.Q.s1 .g.t[0;.g.i]]; v};
 .g.l:{(x;{$["\""=first x;`STR;x[0]in .Q.n;`NUM;x[0]in".",.Q.a,.Q.A;`ID;`]}each x:x where not (()," ")~/:x:-4!x)};
+```
+
+### Multiple DBs in one Q process
+
+By default it is possible to load only one historic DB at a time. If you load another all data from the previous one will be
+lost. Fortunately all DB state is stored in .Q namespace and in the HDB tables in the root namespace and you can save it
+in some variable and restore it later. Here are some simple functions that do exactly this:
+```
+.db.db:.db.dbm:(0#`)!(); .db.cdb:`;
+.db.sdb:{if[not null .db.cdb;.Q[`sym`date]:(sym;date);.db.db[.db.cdb]:.Q;![`.;();0b;key .Q.dbt]]};
+.db.ldb:{if[x in key .db.db;.db.cdb:x;.Q:.db.db x;`sym`date set' .Q`sym`date;system"cd ",.Q.dbp;set'[key .Q.dbt;value .Q.dbt]]};
+.q.dbl:{.db.sdb[];system "l ",x;.db.cdb:last` vs`$":",x;.Q.dbp:x;.db.dbm[(` sv/: .db.cdb,/:t),t where{$[98=type x:get x;-11=type value flip x;0b]}each t:tables[]]:.db.cdb;.Q.dbt:t!get each t;};
+.q.db:{if[null d:.db.dbm x;'x];if[not .db.cdb=d;.db.sdb[];.db.ldb d];last ` vs x};
+```
+All we need to do is to accurately save all DB related info: .Q namespace itself, DB path, tables, sym and date vectors. To load a DB instead
+of `system "l path"` we should call
+```
+dbl"/kdb/history/fx"
+```
+dbl will save the previous DB's state if any, clear the space for the new DB, load it and save its basic parameters. After
+all DBs are loaded we can easily switch between them using `db` function:
+```
+db`trade
+db`fx.trade
+```
+db requires a table's name, finds the first DB that has this table and restores its state. It returns the table so it is
+possible to use it in select like:
+```
+select from db[`trade] where date=.z.D-1
 ```
