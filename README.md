@@ -19,7 +19,7 @@
 
 ### Intro
 
-There are many hidden features and obscure practices in q. This lista some of them.
+There are many hidden features and obscure practices in q. This lists some of them.
 
 ### Magic value
 
